@@ -2,7 +2,8 @@ import aiosqlite
 import json
 from datetime import datetime, date
 from config import DB_PATH
-
+import os
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
