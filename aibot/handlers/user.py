@@ -500,11 +500,11 @@ async def message_handler(message: Message, state: FSMContext):
             parts = [answer[i:i+4000] for i in range(0, len(answer), 4000)]
             for i, part in enumerate(parts):
                 if i == len(parts) - 1:
-                    await message.answer(part, reply_markup=kb)
+                    await message.answer(part, reply_markup=kb, parse_mode=None)
                 else:
-                    await message.answer(part)
+                    await message.answer(part, parse_mode=None)
         else:
-            await message.answer(answer, reply_markup=kb)
+            await message.answer(answer, reply_markup=kb, parse_mode=None)
 
     except Exception as e:
         await thinking_msg.delete()
