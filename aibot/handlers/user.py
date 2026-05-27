@@ -5,13 +5,16 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import anthropic
 import openai
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from config import ANTHROPIC_API_KEY, OPENAI_API_KEY, CLAUDE_MODEL
 from database import *
 from locales.texts import t
 
 router = Router()
+
+# Start cooldown
+start_cooldown = {}
 
 class UserStates(StatesGroup):
     waiting_promo = State()
@@ -58,7 +61,6 @@ async def subscription_keyboard(lang: str, channels, bot):
     buttons = []
     for ch in channels:
         try:
-            chat = await bot.get_chat(ch["channel_id"])
             invite = await bot.export_chat_invite_link(ch["channel_id"])
             buttons.append([InlineKeyboardButton(
                 text=t(lang, "subscribe_btn", name=ch["channel_name"]),
@@ -75,12 +77,22 @@ async def subscription_keyboard(lang: str, channels, bot):
 @router.message(CommandStart())
 async def start_handler(message: Message, state: FSMContext):
     await state.clear()
+
+    # Cooldown tekshirish
+    user_id = message.from_user.id
+    now = datetime.now()
+    if user_id in start_cooldown:
+        diff = (now - start_cooldown[user_id]).total_seconds()
+        if diff < 5:
+            return
+    start_cooldown[user_id] = now
+
     bot_active = await get_setting("bot_active")
     if bot_active != "1":
         await message.answer("🔴 Bot hozircha ishlamayapti.")
         return
 
-    user = await get_user(message.from_user.id)
+    user = await get_user(user_id)
     if not user:
         reg_enabled = await get_setting("feature_registration")
         if reg_enabled != "1":
@@ -94,7 +106,7 @@ async def start_handler(message: Message, state: FSMContext):
         await message.answer(t(lang, "blocked"))
         return
 
-    subscribed = await check_subscription(message.bot, message.from_user.id)
+    subscribed = await check_subscription(message.bot, user_id)
     if not subscribed:
         channels = await get_channels()
         kb = await subscription_keyboard(lang, channels, message.bot)
@@ -254,7 +266,6 @@ async def card_proof_handler(message: Message, state: FSMContext):
     file_id = message.photo[-1].file_id
     payment_id = await add_payment(message.from_user.id, price, "card", file_id)
 
-    # Notify admins
     from config import ADMIN_IDS
     for admin_id in ADMIN_IDS:
         try:
@@ -268,9 +279,9 @@ async def card_proof_handler(message: Message, state: FSMContext):
                 admin_id,
                 file_id,
                 caption=f"💳 Yangi to'lov!\n\n"
-                        f"👤 Foydalanuvchi: {message.from_user.full_name}\n"
-                        f"🆔 ID: {message.from_user.id}\n"
-                        f"💰 Summa: {price} so'm\n"
+                        f"👤 {message.from_user.full_name}\n"
+                        f"🆔 {message.from_user.id}\n"
+                        f"💰 {price} so'm\n"
                         f"📋 To'lov ID: {payment_id}",
                 reply_markup=kb
             )
@@ -300,8 +311,6 @@ async def pay_stars_handler(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("stars_invoice_"))
 async def stars_invoice_handler(callback: CallbackQuery):
     stars = int(callback.data.split("_")[2])
-    user = await get_user(callback.from_user.id)
-    lang = user["language"] if user else "uz"
     await callback.message.answer_invoice(
         title="💎 Premium obuna",
         description=f"{stars} Telegram Stars evaziga 1 oylik Premium",
@@ -495,7 +504,7 @@ async def message_handler(message: Message, state: FSMContext):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=t(lang, "back"), callback_data="main_menu")]
         ])
-        # Split long messages
+
         if len(answer) > 4000:
             parts = [answer[i:i+4000] for i in range(0, len(answer), 4000)]
             for i, part in enumerate(parts):
